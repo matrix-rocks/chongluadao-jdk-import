@@ -84,9 +84,15 @@ public class Controller {
         upstreamEntries.forEach(upstreamEntry ->
             {
                 try {
-                    var uri = URI.create(upstreamEntry.url);
-                    if (!upstreamDomains.add(uri.getHost())) {
-                        System.out.println("Warning domain \"" + uri.getHost() + "\" is already in the list (URL: \"" + upstreamEntry.url + "\")");
+                    final var uri = URI.create(upstreamEntry.url);
+                    final var domain = uri.getHost();
+                    if (!upstreamDomains.add(domain)) System.out.println("Warning domain \"" + domain + "\" is already in the list (URL: \"" + upstreamEntry.url + "\")");
+                    //Add also www subdomains
+                    if (!domain.startsWith("www.")) {
+                        if (!upstreamDomains.add("www." + domain)) System.out.println("Warning domain \"www." + domain + "\" is already in the list (automatically added www.-prefix)");
+                    } else if (domain.startsWith("www.")) {
+                        final var cutDomain = domain.substring(4, domain.length());
+                        if (!upstreamDomains.add(cutDomain)) System.out.println("Warning domain \"" + cutDomain + "\" is already in the list (automatically removed www.-prefix)");
                     }
                 } catch (IllegalArgumentException e) {
                     System.out.println("Error parsing domain: " + e.getMessage());
