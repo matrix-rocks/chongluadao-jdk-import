@@ -19,3 +19,6 @@ upstream api ------ url to the data source. GET, body format JSON: [{_id, url, m
 ```
 
 When arguments are missing, the help above is shown.
+
+### Build
+for building jdk15 is needed (you can try to change the compile version in the pom.xml), maven is needed and both must be in the path variable. Then you should be able to run the command `mvn clean compile assembly:single --file pom.xml` to build the file. The current directory must be the root of the github-repo so that maven finds the pom.xml.
