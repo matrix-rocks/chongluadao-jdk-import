@@ -3,9 +3,8 @@ package org.mypdns.chongluadao_importer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.ResponseBody;
+import okhttp3.*;
+import org.jetbrains.annotations.NotNull;
 import org.mypdns.powerdns.model.zone.*;
 import org.mypdns.powerdns.model.zone.Record;
 
@@ -21,11 +20,11 @@ public class Controller {
 
     private final String sqlTarget;
 
-    private final String targetTable;
+    private final String targetApiEndpoint;
 
-    private final String targetTableColumn;
+    private final String apiKey;
 
-    private final String excludeTable;
+    private final String table;
 
     private final String excludeTableColumn;
 
@@ -37,11 +36,11 @@ public class Controller {
         if (args.length != 6) {
             StringBuilder stringBuilder = new StringBuilder();
             stringBuilder.append("Help:").append("\n");
-            stringBuilder.append("java -jar chongluadao-importer.jar <target sql url> <target table> <target domain column> <exclude table> <exclude column> <upstream api>").append("\n\n");
-            stringBuilder.append("target sql url ---- \"jdbc:<mariadb|mysql>://<domain>:<port>/<database>?user=<user>&password=<password>\"").append("\n");
-            stringBuilder.append("target table ------ table where the new entries shall be pushed (will be wiped before!)").append("\n");
-            stringBuilder.append("exclude table ----- table which contains domains which should not be in the list of entries in target table").append("\n");
-            stringBuilder.append("upstream api ------ url to the data source. GET, body format JSON: [{_id, url, meta{}}]. Example: https://api.chongluadao.vn/v1/blacklist");
+            stringBuilder.append("java -jar chongluadao-importer.jar <local sql url> <local api endpoint> <local api key> <local table> <upstream api>").append("\n\n");
+            stringBuilder.append("local sql url ----------- \"jdbc:<mariadb|mysql>://<domain>:<port>/<database>?user=<user>&password=<password>\"").append("\n");
+            stringBuilder.append("local api endpoint ------ table where the new entries shall be pushed (will be wiped before!)").append("\n");
+            stringBuilder.append("local table ------------- table which is used for working on").append("\n");
+            stringBuilder.append("upstream api ------------ url to the data source. GET, body format JSON: [{_id, url, meta{}}]. Example: https://api.chongluadao.vn/v1/blacklist");
             System.out.println(stringBuilder.toString());
             System.exit(0);
         } else {
@@ -49,11 +48,11 @@ public class Controller {
         }
     }
 
-    public Controller(String sqlTarget, String targetTable, String targetTableColumn, String excludeTable, String excludeTableColumn, String upstreamApi) throws IOException {
+    public Controller(String sqlTarget, String targetApiEndpoint, String apiKey, String table, String excludeTableColumn, String upstreamApi) throws IOException {
         this.sqlTarget = sqlTarget;
-        this.targetTable = targetTable;
-        this.targetTableColumn = targetTableColumn;
-        this.excludeTable = excludeTable;
+        this.targetApiEndpoint = targetApiEndpoint;
+        this.apiKey = apiKey;
+        this.table = table;
         this.excludeTableColumn = excludeTableColumn;
         this.upstreamApi = upstreamApi;
 
@@ -94,59 +93,83 @@ public class Controller {
                     final var domain = uri.getHost();
                     if (!upstreamDomains.add(domain)) System.out.println("Warning domain \"" + domain + "\" is already in the list (URL: \"" + upstreamEntry.url + "\")");
                     //Add also www subdomains
-                    if (!domain.startsWith("www.")) {
-                        if (!upstreamDomains.add("www." + domain)) System.out.println("Warning domain \"www." + domain + "\" is already in the list (automatically added www.-prefix)");
-                    } else if (domain.startsWith("www.")) {
-                        final var cutDomain = domain.substring(4, domain.length());
-                        if (!upstreamDomains.add(cutDomain)) System.out.println("Warning domain \"" + cutDomain + "\" is already in the list (automatically removed www.-prefix)");
-                    }
+                    if (!domain.startsWith("www.")) upstreamDomains.add("www." + domain);
+                    //Add also second level domains
+                    if (domain.startsWith("www.")) upstreamDomains.add(domain.substring(4));
                 } catch (IllegalArgumentException e) {
                     System.out.println("Error parsing domain: " + e.getMessage());
                 }
             }
         );
-        System.out.println("Parsed " + upstreamDomains.size() + " domains from upstream");
+        //Divide by two as they're duplicated with or without www. only for comparison
+        System.out.println("Parsed " + (upstreamDomains.size() / 2) + " domains from upstream");
 
-        //Pull list from DB with domains which are to be removed from the upstream list
-        final var databaseDomains = new HashSet<String>();
+        //Remove all domains which are in the database HashSet
+        final var sizeBefore = upstreamDomains.size();
+        upstreamDomains.removeAll(getExcludeDomains());
+        //Divide by two as they're duplicated with or without www. only for comparison
+        System.out.println("Removed " + (sizeBefore - upstreamDomains.size()) + " domains (" + (upstreamDomains.size() / 2) + " left to be pushed)");
+
+        //Send new domains to the auth server
+        request = new Request.Builder()
+                .url(targetApiEndpoint)
+                .method("PATCH", RequestBody.create(buildNewRrset(upstreamDomains)))
+                .header("X-API-Key", apiKey)
+                .build();
+
         try {
-            var result = sqlAdapter.query("SELECT `" + this.excludeTableColumn + "` FROM `" + this.excludeTable + "` WHERE `" + this.excludeTableColumn + "` REGEXP '.*\\.adult\\.mypdns\\.cloud'");
-
-            //final Pattern pattern = Pattern.compile("(\\*\\.)?(.+(?<!\\.rpz))(\\.rpz)?\\.mypdns\\.cloud");
-            final Pattern pattern = Pattern.compile("(\\*\\.)?(.+)(\\.adult)\\.mypdns\\.cloud");
-
-            while (result.next()) {
-                final var currentDomain = result.getString(this.excludeTableColumn);
-                //Remove ".rpz.mypdns.cloud"
-                Matcher matcher = pattern.matcher(currentDomain);
-                if (matcher.find()) {
-                    databaseDomains.add(matcher.replaceAll("$2"));
-                } else {
-                    databaseDomains.add(result.getString(this.excludeTableColumn));
-                }
-            }
-            System.out.println("Selected " + databaseDomains.size() + " domains from table \"" + this.excludeTable + "\" which are to be removed from the upstream list if exist");
+            sqlAdapter.removeOldRecords(this.table, upstreamDomains);
         } catch (SQLException ex) {
             // handle any errors
+            System.out.println("Error clearing the old records in the target table");
             System.out.println("SQLException: " + ex.getMessage());
             System.out.println("SQLState: " + ex.getSQLState());
             System.out.println("VendorError: " + ex.getErrorCode());
             System.exit(3);
         }
 
-        //Remove all domains which are in the database HashSet
-        final var sizeBefore = upstreamDomains.size();
-        upstreamDomains.removeAll(databaseDomains);
-        System.out.println("Removed " + (sizeBefore - upstreamDomains.size()) + " domains (" + upstreamDomains.size() + " left)");
-
-
-        //Create new json rrset
-        final var rrsetstring = createNewRrset(upstreamDomains);
+        final Response response = client.newCall(request).execute();
+        if (response.code() != 204) {
+            System.out.println("Error while pushing new entries in auth server: Status code " + response.code() + ", body:" + response.body().string());
+        } else {
+            System.out.println("Pushed successfully");
+        }
 
         System.out.println("Bye!");
     }
 
-    public String createNewRrset(HashSet<String> domains) throws JsonProcessingException {
+    @NotNull
+    private HashSet<String> getExcludeDomains() {
+        //Pull list from DB with domains which are to be removed from the upstream list
+        final var excludeDomains = new HashSet<String>();
+        try {
+            var result = sqlAdapter.query("SELECT `name` FROM `" + this.table + "` WHERE `" + this.excludeTableColumn + "` REGEXP '.*\\.adult\\.mypdns\\.cloud'");
+
+            //final Pattern pattern = Pattern.compile("(\\*\\.)?(.+(?<!\\.rpz))(\\.rpz)?\\.mypdns\\.cloud");
+            final Pattern pattern = Pattern.compile("(\\*\\.)?(.+)(\\.adult)\\.mypdns\\.cloud");
+
+            while (result.next()) {
+                final var currentDomain = result.getString("name");
+                //Remove ".rpz.mypdns.cloud"
+                Matcher matcher = pattern.matcher(currentDomain);
+                if (matcher.find()) {
+                    excludeDomains.add(matcher.replaceAll("$2"));
+                } else {
+                    excludeDomains.add(result.getString("name"));
+                }
+            }
+            System.out.println("Selected " + excludeDomains.size() + " domains from table \"" + this.table + "\" which are to be removed from the upstream list if exist");
+        } catch (SQLException ex) {
+            // handle any errors
+            System.out.println("SQLException: " + ex.getMessage());
+            System.out.println("SQLState: " + ex.getSQLState());
+            System.out.println("VendorError: " + ex.getErrorCode());
+            System.exit(2);
+        }
+        return excludeDomains;
+    }
+
+    private byte[] buildNewRrset(@NotNull HashSet<String> domains) throws JsonProcessingException {
         final var rrsets = new ArrayList<Rrset>();
         //Clear old entries
         rrsets.add(new Rrset(
@@ -154,22 +177,12 @@ public class Controller {
                 Type.CNAME,
                 0,
                 Changetype.DELETE,
-                new Record[]{
-                        new Record(".", false)
-                })
+                null)
         );
 
         domains.forEach(domain -> {
-            rrsets.add(new Rrset(
-                    (domain + ".chongluadao.mypdns.cloud."),
-                    Type.CNAME,
-                    86400L,
-                    Changetype.REPLACE,
-                    new Record[]{
-                            new Record(".", false)
-                    })
-            );
-            rrsets.add(new Rrset(
+            if (!domain.startsWith("www.")) {
+                rrsets.add(new Rrset(
                     ("*." + domain + ".chongluadao.mypdns.cloud."),
                     Type.CNAME,
                     86400L,
@@ -177,35 +190,11 @@ public class Controller {
                     new Record[]{
                             new Record(".", false)
                     })
-            );
+                );
+            }
         });
 
         final var objectWriter = new ObjectMapper().writer().withDefaultPrettyPrinter();
-        return objectWriter.withRootName("rrsets").writeValueAsString(rrsets);
-    }
-
-    public void insertNewData(HashSet<String> domains) {
-        //Insert new list after clearing the old table
-        try {
-            //Build values string for insertion
-            StringBuilder stringBuilder = new StringBuilder();
-            domains.forEach(domain -> {
-                stringBuilder.append("('").append(domain).append("'), ");
-            });
-            var values = stringBuilder.toString();
-            //remove the last comma
-            values = values.substring(0, values.length() - 2);
-
-            sqlAdapter.clearTable(this.targetTable);
-            System.out.println("Cleared the table \"" + this.targetTable + "\"");
-            sqlAdapter.insertInto(this.targetTable, new String[]{this.targetTableColumn}, values);
-            System.out.println("Inserted new domain list into \"" + this.targetTable + "\"");
-        } catch (SQLException ex) {
-            // handle any errors
-            System.out.println("SQLException: " + ex.getMessage());
-            System.out.println("SQLState: " + ex.getSQLState());
-            System.out.println("VendorError: " + ex.getErrorCode());
-            System.exit(4);
-        }
+        return objectWriter.withRootName("rrsets").writeValueAsBytes(rrsets);
     }
 }

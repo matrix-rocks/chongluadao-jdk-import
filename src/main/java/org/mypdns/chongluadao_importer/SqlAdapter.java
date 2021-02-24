@@ -1,28 +1,28 @@
 package org.mypdns.chongluadao_importer;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.sql.*;
 import java.util.HashSet;
 
 public class SqlAdapter {
 
-    private final Connection connection;
     private final Statement statement;
 
     public SqlAdapter(String target) {
         Statement tryStatement = null;
-        Connection tryConnection = null;
+        Connection connection = null;
         try {
-            tryConnection = DriverManager.getConnection(target);
+            connection = DriverManager.getConnection(target);
             //conn = DriverManager.getConnection("jdbc:mariadb://10.1.3.12:3306/mypdns?user=mypdns&password=123456");
             //DriverManager.getConnection("jdbc:mysql://10.1.3.12/test?" +
             //        "user=mypdns&password=123456");
 
-            tryStatement = tryConnection.createStatement();
+            tryStatement = connection.createStatement();
         } catch (SQLException throwables) {
             System.out.println("Error logon DB: " + throwables.getMessage());
             System.exit(2);
         }
-        connection = tryConnection;
         statement = tryStatement;
     }
 
@@ -34,7 +34,7 @@ public class SqlAdapter {
         return statement.execute("DELETE FROM `" + table + "`");
     }
 
-    public int insertInto(String table, String[] columns, String values) throws SQLException {
+    public int insertInto(@NotNull String table, @NotNull String[] columns, @NotNull String values) throws SQLException {
         final var stringBuilder = new StringBuilder();
         for (var i = 0; i<columns.length; i++) {
             if (i<columns.length-1) {
@@ -44,5 +44,9 @@ public class SqlAdapter {
             }
         }
         return statement.executeUpdate("INSERT INTO `" + table + "` (" + stringBuilder.toString() + ") VALUES " + values);
+    }
+
+    public void removeOldRecords(String table, HashSet<String> domains) throws SQLException {
+        statement.execute("DELETE FROM `" + table + "` WHERE `name` LIKE '%.chongluadao.mypdns.cloud' AND `type` NOT LIKE 'SOA' AND `type` NOT LIKE 'NS'");
     }
 }
