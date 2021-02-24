@@ -13,6 +13,7 @@ import java.net.URI;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -34,14 +35,15 @@ public class Controller {
 
     public static void main(String[] args) throws IOException {
         if (args.length != 6) {
-            StringBuilder stringBuilder = new StringBuilder();
-            stringBuilder.append("Help:").append("\n");
-            stringBuilder.append("java -jar chongluadao-importer.jar <local sql url> <local api endpoint> <local api key> <local table> <upstream api>").append("\n\n");
-            stringBuilder.append("local sql url ----------- \"jdbc:<mariadb|mysql>://<domain>:<port>/<database>?user=<user>&password=<password>\"").append("\n");
-            stringBuilder.append("local api endpoint ------ table where the new entries shall be pushed (will be wiped before!)").append("\n");
-            stringBuilder.append("local table ------------- table which is used for working on").append("\n");
-            stringBuilder.append("upstream api ------------ url to the data source. GET, body format JSON: [{_id, url, meta{}}]. Example: https://api.chongluadao.vn/v1/blacklist");
-            System.out.println(stringBuilder.toString());
+            String stringBuilder = """
+                    Help:
+                    java -jar chongluadao-importer.jar <local sql url> <local api endpoint> <local api key> <local table> <upstream api>
+
+                    local sql url ----------- "jdbc:<mariadb|mysql>://<domain>:<port>/<database>?user=<user>&password=<password>"
+                    local api endpoint ------ table where the new entries shall be pushed (will be wiped before!)
+                    local table ------------- table which is used for working on
+                    upstream api ------------ url to the data source. GET, body format JSON: [{_id, url, meta{}}]. Example: https://api.chongluadao.vn/v1/blacklist""";
+            System.out.println(stringBuilder);
             System.exit(0);
         } else {
             new Controller(args[0], args[1], args[2], args[3], args[4], args[5]);
@@ -85,7 +87,6 @@ public class Controller {
 
         //Extract domains from internal object model which contains whole URIs
         final var upstreamDomains = new HashSet<String>();
-        int ignoredEntries;
         upstreamEntries.forEach(upstreamEntry ->
             {
                 try {
@@ -106,13 +107,13 @@ public class Controller {
 
         //Remove all domains which are in the database HashSet and put it into a new HashSet
         final var cleanedUpstreamDomains = new HashSet<>(upstreamDomains);
-        final var excludedUpstreamDomains = new HashSet<>(upstreamDomains);
         cleanedUpstreamDomains.removeAll(getExcludeDomains());
-        //Divide by two as they're duplicated with or without www. only for comparison
+
+        //List excluded domains
+        final var excludedUpstreamDomains = new HashSet<>(upstreamDomains);
         excludedUpstreamDomains.removeAll(cleanedUpstreamDomains);
-        excludedUpstreamDomains.forEach(domain -> {
-            System.out.println("Excluded \"" + domain + "\"");
-        });
+        excludedUpstreamDomains.forEach(domain -> System.out.println("Excluded \"" + domain + "\""));
+        //Divide by two as they're duplicated with or without www. only for comparison
         System.out.println("Excluded " + excludedUpstreamDomains.size() + " domains (" + (cleanedUpstreamDomains.size() / 2) + " left to be pushed)");
 
         //Send new domains to the auth server
@@ -136,7 +137,7 @@ public class Controller {
 
         final Response response = client.newCall(request).execute();
         if (response.code() != 204) {
-            System.out.println("Error while pushing new entries in auth server: Status code " + response.code() + ", body:" + response.body().string());
+            System.out.println("Error while pushing new entries in auth server: Status code " + response.code() + ", body:" + Objects.requireNonNull(response.body()).string());
         } else {
             System.out.println("Pushed successfully");
         }
