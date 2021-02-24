@@ -104,11 +104,16 @@ public class Controller {
         //Divide by two as they're duplicated with or without www. only for comparison
         System.out.println("Parsed " + (upstreamDomains.size() / 2) + " domains from upstream");
 
-        //Remove all domains which are in the database HashSet
-        final var sizeBefore = upstreamDomains.size();
-        upstreamDomains.removeAll(getExcludeDomains());
+        //Remove all domains which are in the database HashSet and put it into a new HashSet
+        final var cleanedUpstreamDomains = new HashSet<>(upstreamDomains);
+        final var excludedUpstreamDomains = new HashSet<>(upstreamDomains);
+        cleanedUpstreamDomains.removeAll(getExcludeDomains());
         //Divide by two as they're duplicated with or without www. only for comparison
-        System.out.println("Removed " + (sizeBefore - upstreamDomains.size()) + " domains (" + (upstreamDomains.size() / 2) + " left to be pushed)");
+        excludedUpstreamDomains.removeAll(cleanedUpstreamDomains);
+        excludedUpstreamDomains.forEach(domain -> {
+            System.out.println("Excluded \"" + domain + "\"");
+        });
+        System.out.println("Excluded " + excludedUpstreamDomains.size() + " domains (" + (cleanedUpstreamDomains.size() / 2) + " left to be pushed)");
 
         //Send new domains to the auth server
         request = new Request.Builder()
