@@ -1,14 +1,18 @@
 package org.mypdns.chongluadao_importer;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.ResponseBody;
+import org.mypdns.powerdns.model.zone.*;
+import org.mypdns.powerdns.model.zone.Record;
 
 import java.io.IOException;
 import java.net.URI;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -26,6 +30,8 @@ public class Controller {
     private final String excludeTableColumn;
 
     private final String upstreamApi;
+
+    private final SqlAdapter sqlAdapter;
 
     public static void main(String[] args) throws IOException {
         if (args.length != 6) {
@@ -52,7 +58,7 @@ public class Controller {
         this.upstreamApi = upstreamApi;
 
         //Logon into DB for later
-        final var sqlAdapter = new SqlAdapter(this.sqlTarget);
+        this.sqlAdapter = new SqlAdapter(this.sqlTarget);
         System.out.println("Successfully logged on at DB");
 
         //Get current list
@@ -128,16 +134,62 @@ public class Controller {
             System.exit(3);
         }
 
-        //Remove all domains which are in the by the database HashSet
+        //Remove all domains which are in the database HashSet
         final var sizeBefore = upstreamDomains.size();
         upstreamDomains.removeAll(databaseDomains);
         System.out.println("Removed " + (sizeBefore - upstreamDomains.size()) + " domains (" + upstreamDomains.size() + " left)");
 
+
+        //Create new json rrset
+        final var rrsetstring = createNewRrset(upstreamDomains);
+
+        System.out.println("Bye!");
+    }
+
+    public String createNewRrset(HashSet<String> domains) throws JsonProcessingException {
+        final var rrsets = new ArrayList<Rrset>();
+        //Clear old entries
+        rrsets.add(new Rrset(
+                ("*.chongluadao.mypdns.cloud."),
+                Type.CNAME,
+                0,
+                Changetype.DELETE,
+                new Record[]{
+                        new Record(".", false)
+                })
+        );
+
+        domains.forEach(domain -> {
+            rrsets.add(new Rrset(
+                    (domain + ".chongluadao.mypdns.cloud."),
+                    Type.CNAME,
+                    86400L,
+                    Changetype.REPLACE,
+                    new Record[]{
+                            new Record(".", false)
+                    })
+            );
+            rrsets.add(new Rrset(
+                    ("*." + domain + ".chongluadao.mypdns.cloud."),
+                    Type.CNAME,
+                    86400L,
+                    Changetype.REPLACE,
+                    new Record[]{
+                            new Record(".", false)
+                    })
+            );
+        });
+
+        final var objectWriter = new ObjectMapper().writer().withDefaultPrettyPrinter();
+        return objectWriter.withRootName("rrsets").writeValueAsString(rrsets);
+    }
+
+    public void insertNewData(HashSet<String> domains) {
         //Insert new list after clearing the old table
         try {
             //Build values string for insertion
             StringBuilder stringBuilder = new StringBuilder();
-            upstreamDomains.forEach(domain -> {
+            domains.forEach(domain -> {
                 stringBuilder.append("('").append(domain).append("'), ");
             });
             var values = stringBuilder.toString();
@@ -155,7 +207,5 @@ public class Controller {
             System.out.println("VendorError: " + ex.getErrorCode());
             System.exit(4);
         }
-
-        System.out.println("Bye!");
     }
 }
