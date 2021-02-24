@@ -24,6 +24,6 @@ public class SqlAdapter {
     }
 
     public void removeOldRecords(String table) throws SQLException {
-        statement.execute("DELETE FROM `" + table + "` WHERE `name` LIKE '%.chongluadao.mypdns.cloud' AND `type` NOT LIKE 'SOA' AND `type` NOT LIKE 'NS'")
+        statement.execute("DELETE FROM `" + table + "` WHERE `name` LIKE '%.chongluadao.mypdns.cloud' AND `type` NOT LIKE 'SOA' AND `type` NOT LIKE 'NS'");
     }
 }
