@@ -177,7 +177,7 @@ public class Controller {
 
     private byte[] buildNewRrset(@NotNull HashSet<String> domains) throws JsonProcessingException {
         final var rrsets = new ArrayList<Rrset>();
-        //Clear old entries
+        //Always remove any whitelist that would break the blacklist
         rrsets.add(new Rrset(
                 ("*.chongluadao.mypdns.cloud."),
                 Type.CNAME,
