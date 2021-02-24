@@ -198,6 +198,15 @@ public class Controller {
                             new Record(".", false)
                     })
                 );
+                rrsets.add(new Rrset(
+                        (domain + ".chongluadao.mypdns.cloud."),
+                        Type.CNAME,
+                        86400L,
+                        Changetype.REPLACE,
+                        new Record[]{
+                                new Record(".", false)
+                        })
+                );
             }
         });
 
