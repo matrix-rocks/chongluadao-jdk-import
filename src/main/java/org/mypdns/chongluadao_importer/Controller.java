@@ -112,13 +112,14 @@ public class Controller {
 
         //Send new domains to the auth server
         request = new Request.Builder()
-                .url(targetApiEndpoint)
-                .method("PATCH", RequestBody.create(buildNewRrset(upstreamDomains)))
-                .header("X-API-Key", apiKey)
+                .url(this.targetApiEndpoint)
+                .method("PATCH", RequestBody.create(buildNewRrset(cleanedUpstreamDomains)))
+                .header("X-API-Key", this.apiKey)
                 .build();
 
         try {
-            sqlAdapter.removeOldRecords(this.table, upstreamDomains);
+            sqlAdapter.removeOldRecords(this.table);
+            System.out.println("Cleared the old records in the target table");
         } catch (SQLException ex) {
             // handle any errors
             System.out.println("Error clearing the old records in the target table");
@@ -143,7 +144,7 @@ public class Controller {
         //Pull list from DB with domains which are to be removed from the upstream list
         final var excludeDomains = new HashSet<String>();
         try {
-            var result = sqlAdapter.query("SELECT `name` FROM `" + this.table + "` WHERE `" + this.excludeTableColumn + "` REGEXP '.*\\.adult\\.mypdns\\.cloud'");
+            var result = sqlAdapter.query("SELECT `" + this.excludeTableColumn + "` FROM `" + this.table + "` WHERE `" + this.excludeTableColumn + "` REGEXP '.*\\.adult\\.mypdns\\.cloud'");
 
             //final Pattern pattern = Pattern.compile("(\\*\\.)?(.+(?<!\\.rpz))(\\.rpz)?\\.mypdns\\.cloud");
             final Pattern pattern = Pattern.compile("(\\*\\.)?(.+)(\\.adult)\\.mypdns\\.cloud");

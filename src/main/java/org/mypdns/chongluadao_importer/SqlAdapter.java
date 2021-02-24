@@ -46,7 +46,7 @@ public class SqlAdapter {
         return statement.executeUpdate("INSERT INTO `" + table + "` (" + stringBuilder.toString() + ") VALUES " + values);
     }
 
-    public void removeOldRecords(String table, HashSet<String> domains) throws SQLException {
+    public void removeOldRecords(String table) throws SQLException {
         statement.execute("DELETE FROM `" + table + "` WHERE `name` LIKE '%.chongluadao.mypdns.cloud' AND `type` NOT LIKE 'SOA' AND `type` NOT LIKE 'NS'");
     }
 }
